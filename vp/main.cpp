@@ -18,7 +18,7 @@
 #include "sensor2.h"
 #include "syscall.h"
 #include "uart.h"
-#include "SobelFilter.h" //Add
+#include "lenet.h" //Add
 #include "util/options.h"
 #include "platform/common/options.h"
 #include "platform/common/terminal.h"
@@ -73,9 +73,18 @@ public:
 	addr_t display_start_addr = 0x72000000;
 	addr_t display_end_addr = display_start_addr + Display::addressRange;
 	//Add
-	addr_t sobelFilter_start_addr = 0x73000000;
- 	addr_t sobelFilter_size = 0x01000000;
- 	addr_t sobelFilter_end_addr = sobelFilter_start_addr + sobelFilter_size - 1;
+	addr_t lenetFilter_start_addr = 0x73000000;
+ 	addr_t lenetFilter_size = 0x01000000;
+ 	addr_t lenetFilter_end_addr = lenetFilter_start_addr + lenetFilter_size - 1;
+	
+	addr_t lenetFilter2_start_addr = 0x74000000;
+ 	addr_t lenetFilter2_end_addr = lenetFilter2_start_addr + lenetFilter_size - 1;
+
+	addr_t lenetFilter3_start_addr = 0x75000000;
+ 	addr_t lenetFilter3_end_addr = lenetFilter3_start_addr + lenetFilter_size - 1;
+
+	addr_t lenetFilter4_start_addr = 0x76000000;
+ 	addr_t lenetFilter4_end_addr = lenetFilter4_start_addr + lenetFilter_size - 1;
 
 	bool quiet = false;
 	bool use_E_base_isa = false;
@@ -126,17 +135,23 @@ int sc_main(int argc, char **argv) {
 
 	tlm::tlm_global_quantum::instance().set(sc_core::sc_time(opt.tlm_global_quantum, sc_core::SC_NS));
 
-	ISS core(0, opt.use_E_base_isa);
+	ISS core0(0, opt.use_E_base_isa);
+	ISS core1(1, opt.use_E_base_isa);
+	ISS core2(2, opt.use_E_base_isa);
+	ISS core3(3, opt.use_E_base_isa);
 	SimpleMemory mem("SimpleMemory", opt.mem_size);
 	SimpleTerminal term("SimpleTerminal");
 	UART uart("Generic_UART", 6);
 	ELFLoader loader(opt.input_program.c_str());
 	//Add one target socket to bus (13-->14)
-	SimpleBus<3, 14> bus("SimpleBus");
-	CombinedMemoryInterface iss_mem_if("MemoryInterface", core);
+	SimpleBus<6, 17> bus("SimpleBus"); //FIXME
+	CombinedMemoryInterface iss_mem_if0("MemoryInterface0", core0);
+	CombinedMemoryInterface iss_mem_if1("MemoryInterface1", core1);
+	CombinedMemoryInterface iss_mem_if2("MemoryInterface2", core2);
+	CombinedMemoryInterface iss_mem_if3("MemoryInterface3", core3);
 	SyscallHandler sys("SyscallHandler");
-	FE310_PLIC<1, 64, 96, 32> plic("PLIC");
-	CLINT<1> clint("CLINT");
+	FE310_PLIC<4, 64, 96, 32> plic("PLIC");
+	CLINT<4> clint("CLINT");
 	SimpleSensor sensor("SimpleSensor", 2);
 	SimpleSensor2 sensor2("SimpleSensor2", 5);
 	BasicTimer timer("BasicTimer", 3);
@@ -147,20 +162,42 @@ int sc_main(int argc, char **argv) {
 	Display display("Display");
 	DebugMemoryInterface dbg_if("DebugMemoryInterface");
 	//Add
-	SobelFilter sobel_filter("sobel_filter");
+	Lenet lenet("lenet", 6);
+	Lenet lenet2("lenet2", 8);
+	Lenet lenet3("lenet3", 9);
+	Lenet lenet4("lenet4", 10);
 
 	MemoryDMI dmi = MemoryDMI::create_start_size_mapping(mem.data, opt.mem_start_addr, mem.size);
-	InstrMemoryProxy instr_mem(dmi, core);
+	InstrMemoryProxy instr_mem0(dmi, core0);
+	InstrMemoryProxy instr_mem1(dmi, core1);
+	InstrMemoryProxy instr_mem2(dmi, core2);
+	InstrMemoryProxy instr_mem3(dmi, core3);
 
 	std::shared_ptr<BusLock> bus_lock = std::make_shared<BusLock>();
-	iss_mem_if.bus_lock = bus_lock;
+	iss_mem_if0.bus_lock = bus_lock;
+	iss_mem_if1.bus_lock = bus_lock;
+	iss_mem_if2.bus_lock = bus_lock;
+	iss_mem_if3.bus_lock = bus_lock;
 
-	instr_memory_if *instr_mem_if = &iss_mem_if;
-	data_memory_if *data_mem_if = &iss_mem_if;
-	if (opt.use_instr_dmi)
-		instr_mem_if = &instr_mem;
+	instr_memory_if *instr_mem_if0 = &iss_mem_if0;
+	instr_memory_if *instr_mem_if1 = &iss_mem_if1;
+	instr_memory_if *instr_mem_if2 = &iss_mem_if2;
+	instr_memory_if *instr_mem_if3 = &iss_mem_if3;
+	data_memory_if *data_mem_if0 = &iss_mem_if0;
+	data_memory_if *data_mem_if1 = &iss_mem_if1;
+	data_memory_if *data_mem_if2 = &iss_mem_if2;
+	data_memory_if *data_mem_if3 = &iss_mem_if3;
+	if (opt.use_instr_dmi) {
+		instr_mem_if0 = &instr_mem0;
+		instr_mem_if1 = &instr_mem1;
+		instr_mem_if2 = &instr_mem2;
+		instr_mem_if3 = &instr_mem3;
+	}
 	if (opt.use_data_dmi) {
-		iss_mem_if.dmi_ranges.emplace_back(dmi);
+		iss_mem_if0.dmi_ranges.emplace_back(dmi);
+		iss_mem_if1.dmi_ranges.emplace_back(dmi);
+		iss_mem_if2.dmi_ranges.emplace_back(dmi);
+		iss_mem_if3.dmi_ranges.emplace_back(dmi);
 	}
 
 	uint64_t entry_point = loader.get_entrypoint();
@@ -179,13 +216,27 @@ int sc_main(int argc, char **argv) {
 	 * mainly used together with the syscall handler, this helps for certain floats.
 	 * https://github.com/riscv-non-isa/riscv-elf-psabi-doc/blob/master/riscv-elf.adoc
 	 */
-	core.init(instr_mem_if, data_mem_if, &clint, entry_point, rv64_align_address(opt.mem_end_addr));
+	core0.init(instr_mem_if0, data_mem_if0, &clint, entry_point, (opt.mem_end_addr-3));
+	core1.init(instr_mem_if1, data_mem_if1, &clint, entry_point, (opt.mem_end_addr-32767));
+	core2.init(instr_mem_if2, data_mem_if2, &clint, entry_point, (opt.mem_end_addr-65535));
+	core3.init(instr_mem_if3, data_mem_if3, &clint, entry_point, (opt.mem_end_addr-98303));
 	sys.init(mem.data, opt.mem_start_addr, loader.get_heap_addr());
-	sys.register_core(&core);
+	sys.register_core(&core0);
+	sys.register_core(&core1);
+	sys.register_core(&core2);
+	sys.register_core(&core3);
 
-	if (opt.intercept_syscalls)
-		core.sys = &sys;
-	core.error_on_zero_traphandler = opt.error_on_zero_traphandler;
+	if (opt.intercept_syscalls) {
+		core0.sys = &sys;
+		core1.sys = &sys;
+		core2.sys = &sys;
+		core3.sys = &sys;
+	}
+	core0.error_on_zero_traphandler = opt.error_on_zero_traphandler;
+	core1.error_on_zero_traphandler = opt.error_on_zero_traphandler;
+	core2.error_on_zero_traphandler = opt.error_on_zero_traphandler;
+	core3.error_on_zero_traphandler = opt.error_on_zero_traphandler;
+
 
 	// address mapping
 	{
@@ -204,16 +255,21 @@ int sc_main(int argc, char **argv) {
 		bus.ports[it++] = new PortMapping(opt.display_start_addr, opt.display_end_addr);
 		bus.ports[it++] = new PortMapping(opt.sys_start_addr, opt.sys_end_addr);
 		//Add
-		bus.ports[it++] = new PortMapping(opt.sobelFilter_start_addr, opt.sobelFilter_end_addr);
-
+		bus.ports[it++] = new PortMapping(opt.lenetFilter_start_addr, opt.lenetFilter_end_addr);
+		bus.ports[it++] = new PortMapping(opt.lenetFilter2_start_addr, opt.lenetFilter2_end_addr);
+		bus.ports[it++] = new PortMapping(opt.lenetFilter3_start_addr, opt.lenetFilter3_end_addr);
+		bus.ports[it++] = new PortMapping(opt.lenetFilter4_start_addr, opt.lenetFilter4_end_addr);
 	}
 
 	// connect TLM sockets
-	iss_mem_if.isock.bind(bus.tsocks[0]);
-	dbg_if.isock.bind(bus.tsocks[2]);
+	iss_mem_if0.isock.bind(bus.tsocks[0]);
+	iss_mem_if1.isock.bind(bus.tsocks[1]);
+	iss_mem_if2.isock.bind(bus.tsocks[2]);
+	iss_mem_if3.isock.bind(bus.tsocks[3]);
+	dbg_if.isock.bind(bus.tsocks[4]);
 
 	PeripheralWriteConnector dma_connector("SimpleDMA-Connector");  // to respect ISS bus locking
-	dma_connector.isock.bind(bus.tsocks[1]);
+	dma_connector.isock.bind(bus.tsocks[5]);
 	dma.isock.bind(dma_connector.tsock);
 	dma_connector.bus_lock = bus_lock;
 
@@ -233,34 +289,66 @@ int sc_main(int argc, char **argv) {
 		bus.isocks[it++].bind(display.tsock);
 		bus.isocks[it++].bind(sys.tsock);
 		//Add
-		bus.isocks[it++].bind(sobel_filter.tsock);
+		bus.isocks[it++].bind(lenet.tsock);
+		bus.isocks[it++].bind(lenet2.tsock);
+		bus.isocks[it++].bind(lenet3.tsock);
+		bus.isocks[it++].bind(lenet4.tsock);
 	}
 
 	// connect interrupt signals/communication
-	plic.target_harts[0] = &core;
-	clint.target_harts[0] = &core;
+	plic.target_harts[0] = &core0;
+	plic.target_harts[1] = &core1;
+	plic.target_harts[2] = &core2;
+	plic.target_harts[3] = &core3;
+	clint.target_harts[0] = &core0;
+	clint.target_harts[1] = &core1;
+	clint.target_harts[2] = &core2;
+	clint.target_harts[3] = &core3;
 	sensor.plic = &plic;
 	dma.plic = &plic;
 	timer.plic = &plic;
 	sensor2.plic = &plic;
 	ethernet.plic = &plic;
+	lenet.plic = &plic;
+	lenet2.plic = &plic;
+	lenet3.plic = &plic;
+	lenet4.plic = &plic;
 
 	std::vector<debug_target_if *> threads;
-	threads.push_back(&core);
+	threads.push_back(&core0);
+	threads.push_back(&core1);
+	threads.push_back(&core2);
+	threads.push_back(&core3);
 
-	core.trace = opt.trace_mode;  // switch for printing instructions
+	core0.trace = opt.trace_mode;  // switch for printing instructions
+	core1.trace = opt.trace_mode;  // switch for printing instructions
+	core2.trace = opt.trace_mode;  // switch for printing instructions
+	core3.trace = opt.trace_mode;  // switch for printing instructions
 	if (opt.use_debug_runner) {
-		auto server = new GDBServer("GDBServer", threads, &dbg_if, opt.debug_port);
-		new GDBServerRunner("GDBRunner", server, &core);
+		auto server0 = new GDBServer("GDBServer0", threads, &dbg_if, opt.debug_port);
+		auto server1 = new GDBServer("GDBServer1", threads, &dbg_if, opt.debug_port);
+		auto server2 = new GDBServer("GDBServer2", threads, &dbg_if, opt.debug_port);
+		auto server3 = new GDBServer("GDBServer3", threads, &dbg_if, opt.debug_port);
+		new GDBServerRunner("GDBRunner0", server0, &core0);
+		new GDBServerRunner("GDBRunner1", server1, &core1);
+		new GDBServerRunner("GDBRunner2", server2, &core2);
+		new GDBServerRunner("GDBRunner3", server3, &core3);
 	} else {
-		new DirectCoreRunner(core);
+		new DirectCoreRunner(core0);
+		new DirectCoreRunner(core1);
+		new DirectCoreRunner(core2);
+		new DirectCoreRunner(core3);
 	}
 
 	if (opt.quiet)
 		sc_core::sc_report_handler::set_verbosity_level(sc_core::SC_NONE);
 	sc_core::sc_start();
-	if (!opt.quiet)
-		core.show();
+	if (!opt.quiet) {
+		core0.show();
+		core1.show();
+		core2.show();
+		core3.show();
+	}
 
 	if (opt.test_signature != "") {
 		auto begin_sig = loader.get_begin_signature_address();
