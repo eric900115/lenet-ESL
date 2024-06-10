@@ -1,0 +1,6 @@
+*.d
+*.o
+sobel
+canny
+
+out.bmp
