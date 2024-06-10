@@ -49,7 +49,6 @@ struct Lenet : public sc_module {
   ~Lenet() {
 	}
 
-  int val[MASK_N];
   unsigned int base_offset;
 
   void do_filter(){
@@ -151,7 +150,7 @@ struct Lenet : public sc_module {
   void Conv1() {
     
     int batch_size = 1, out_channel = 6, out_H = 28, out_W = 28;
-    int kernel_size = 5, input_channel = 1, in_H = 32, in_W = 32;
+    int kernel_size = 5, input_channel = 1;
     int p_sum = 0, h, w;
 
     for(int n = 0; n < batch_size; n++) {
